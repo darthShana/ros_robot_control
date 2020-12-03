@@ -1,0 +1,4 @@
+<launch>
+  <node name="gps_listener" pkg="sensor_listener" type="gps_listener.py" output="screen"/>
+  <node name="imu_listener" pkg="sensor_listener" type="imu_listener.py" output="screen"/>
+</launch>
