@@ -29,9 +29,9 @@
    plan.push_back(start);
    plan.push_back(goal);
 
-   geometry_msgs::PoseStamped new_goal = goal;
-   new_goal.pose.position.y = new_goal.pose.position.y + 3.5;
-   plan.push_back(new_goal);
+   //geometry_msgs::PoseStamped new_goal = goal;
+   //new_goal.pose.position.y = new_goal.pose.position.y + 1;
+   //plan.push_back(new_goal);
 
    publishPlan(plan);
    return true;
