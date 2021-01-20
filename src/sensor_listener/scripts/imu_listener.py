@@ -29,7 +29,7 @@ def on_message(client, userdata, msg):
 
     imu.angular_velocity.x = float(y["v.x"])
     imu.angular_velocity.y = float(y["v.y"])
-    imu.angular_velocity.z = float(y["v.x"])
+    imu.angular_velocity.z = float(y["v.z"])
 
     imu.orientation.w = float(y["o.w"])
     imu.orientation.x = float(y["o.x"])

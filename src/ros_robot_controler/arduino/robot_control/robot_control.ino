@@ -14,6 +14,16 @@ When "off" is recieved, the pin LIGHT_PIN is toggled LOW.
 #include <WebServer.h>
 #include <Adafruit_GPS.h>
 #include <PubSubClient.h>
+#include <Adafruit_Sensor_Calibration.h>
+#include <Adafruit_AHRS.h>
+
+Adafruit_Sensor *accelerometer, *gyroscope, *magnetometer;
+#include "LSM6DS_LIS3MDL.h"  // can adjust to LSM6DS33, LSM6DS3U, LSM6DSOX...
+
+Adafruit_Mahony filter;  // fastest/smalleset
+
+Adafruit_Sensor_Calibration_EEPROM cal;
+#define FILTER_UPDATE_RATE_HZ 100
 
 const char *ssid     = "ESP32-Access-Point";
 const char *password = "Yztt1181!"; // password of the WiFi network
@@ -27,8 +37,9 @@ Servo thrust_servo;  // create servo object to control a servo
 
 #define GPSSerial Serial1
 Adafruit_GPS GPS(&GPSSerial);
-#define GPSECHO false
-uint32_t timer = millis();
+uint32_t timer_gps = millis();
+uint32_t timer_imu = millis();
+
 PubSubClient client(wclient);
 
 // Serving Hello world
@@ -112,9 +123,9 @@ void read_gps() {
       return; // we can fail to parse a sentence in which case we should just wait for another
   }
   
-  if (millis() - timer > 1000) {
+  if (millis() - timer_gps > 1000) {
     if (GPS.fix) {
-      timer = millis(); // reset the timer
+      timer_gps = millis(); // reset the timer
       
       StaticJsonDocument<256> doc;
       doc["latitude"] = String(GPS.latitude, 4);
@@ -133,6 +144,59 @@ void read_gps() {
   
 }
 
+//read IMU
+void read_imu() {
+  StaticJsonDocument<256> doc;
+  float gx, gy, gz;
+  static uint8_t counter = 0;
+
+  if ((millis() - timer_imu) < (1000 / FILTER_UPDATE_RATE_HZ)) {
+    return;
+  }
+  timer_imu = millis();
+  // Read the motion sensors
+  sensors_event_t accel, gyro, mag;
+  accelerometer->getEvent(&accel);
+  gyroscope->getEvent(&gyro);
+  magnetometer->getEvent(&mag);
+
+  cal.calibrate(mag);
+  cal.calibrate(accel);
+  cal.calibrate(gyro);
+  // Gyroscope needs to be converted from Rad/s to Degree/s
+  // the rest are not unit-important
+  gx = gyro.gyro.x * SENSORS_RADS_TO_DPS;
+  gy = gyro.gyro.y * SENSORS_RADS_TO_DPS;
+  gz = gyro.gyro.z * SENSORS_RADS_TO_DPS;
+
+  // Update the SensorFusion filter
+  filter.update(gx, gy, gz, 
+                accel.acceleration.x, accel.acceleration.y, accel.acceleration.z, 
+                mag.magnetic.x, mag.magnetic.y, mag.magnetic.z);
+
+
+  doc["a.x"] = String(accel.acceleration.x, 4);
+  doc["a.y"] = String(accel.acceleration.y, 4);
+  doc["a.z"] = String(accel.acceleration.z, 4);
+
+  doc["v.x"] = String(gyro.gyro.x, 4);
+  doc["v.y"] = String(gyro.gyro.y, 4);
+  doc["v.z"] = String(gyro.gyro.z, 4);
+
+  float qw, qx, qy, qz;
+  filter.getQuaternion(&qw, &qx, &qy, &qz);
+  doc["o.w"] = String(qw, 4);
+  doc["o.x"] = String(qx, 4);
+  doc["o.y"] = String(qy, 4);
+  doc["o.z"] = String(qz, 4);
+
+  String output;
+  serializeJson(doc, output);
+  char copy[256];
+  output.toCharArray(copy, 256);
+  client.publish("sensors/imu", copy);
+
+}
 
 void setup() {
   while (!Serial);  // uncomment to have the sketch wait until Serial is ready
@@ -149,6 +213,23 @@ void setup() {
   GPS.sendCommand(PGCMD_ANTENNA);
   delay(1000);
   GPSSerial.println(PMTK_Q_RELEASE);
+
+  if (!cal.begin()) {
+    Serial.println("Failed to initialize calibration helper");
+  } else if (! cal.loadCalibration()) {
+    Serial.println("No calibration loaded/found");
+  }
+  if (!init_sensors()) {
+    Serial.println("Failed to find sensors");
+    while (1) delay(10);
+  }
+  accelerometer->printSensorDetails();
+  gyroscope->printSensorDetails();
+  magnetometer->printSensorDetails();
+  setup_sensors();
+  filter.begin(FILTER_UPDATE_RATE_HZ);
+  timer_imu = millis();
+  Wire.setClock(400000); // 400KHz
   
   steering_servo.attach(27);  // attaches the servo on pin 9 to the servo object
   thrust_servo.attach(33);  // attaches the servo on pin 9 to the servo object
@@ -166,6 +247,7 @@ void setup() {
 void loop() {
   server.handleClient();
   read_gps();
+  read_imu();
   if (!client.connected()) {
     reconnect();
   }
