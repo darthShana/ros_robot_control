@@ -16,6 +16,9 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     global pub
+    global last_lat
+    global last_lon
+
     y = json.loads(msg.payload)
 
     navsat = NavSatFix()
@@ -33,8 +36,14 @@ def on_message(client, userdata, msg):
         navsat.latitude = -1 * navsat.latitude
     if y["lon"] == "W":
         navsat.longitude = -1 * navsat.longitude
-
     navsat.altitude = y["altitude"]
+
+    if last_lat!=latitude or last_lon!=longitude:
+        print("lat:"+navsat.latitude)
+        print("lon:"+navsat.longitude)
+        last_lat=latitude
+        last_lon=longitude
+
     pub.publish(navsat)
 
 
@@ -42,6 +51,10 @@ if __name__ == '__main__':
     print("starting satnav listener")
     pub = rospy.Publisher('fix', NavSatFix, queue_size=10)
     rospy.init_node('imu_listener', anonymous=True)
+
+    last_lat = "0"
+    last_lon = "0"
+
     client = mqtt.Client()
     client.on_connect = on_connect
     client.on_message = on_message
